@@ -1,48 +1,21 @@
-import torch
-import torch.nn as nn
-import torchvision.transforms as transforms
-# --- 1. IMPORT THIS ---
+import numpy as np
+import onnxruntime as ort
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 from PIL import Image, ImageOps
 import base64
 import io
 
-
-# --- MODEL DEFINITION (Unchanged) ---
-class SimpleCNN(nn.Module):
-    def __init__(self):
-        super(SimpleCNN, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels=1, out_channels=16, kernel_size=3, stride=1, padding=1)
-        self.relu1 = nn.ReLU()
-        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=1, padding=1)
-        self.relu2 = nn.ReLU()
-        self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.fc1 = nn.Linear(32 * 7 * 7, 128)
-        self.relu3 = nn.ReLU()
-        self.fc2 = nn.Linear(128, 10)
-
-    def forward(self, x):
-        x = self.pool1(self.relu1(self.conv1(x)))
-        x = self.pool2(self.relu2(self.conv2(x)))
-        x = x.view(--1, 32 * 7 * 7)
-        x = self.relu3(self.fc1(x))
-        x = self.fc2(x)
-        return x
+# --- 1. LOAD THE ONNX MODEL ---
+# We load the model into an "Inference Session"
+# This is done once when the app starts.
+ONNX_MODEL_PATH = 'mnist_model.onnx'
+ort_session = ort.InferenceSession(ONNX_MODEL_PATH)
+print(f"ONNX model loaded from {ONNX_MODEL_PATH}")
 
 
-# --- LOAD MODEL (Unchanged, with optional fix) ---
-MODEL_SAVE_PATH = 'mnist_cnn_model.pth'
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model = SimpleCNN().to(device)
-# Added weights_only=True to remove the warning
-model.load_state_dict(torch.load(MODEL_SAVE_PATH, map_location=device, weights_only=True))
-model.eval()
-print(f"Model loaded from {MODEL_SAVE_PATH} and running on {device}")
-
-
-# --- IMAGE PROCESSING (Unchanged) ---
+# --- 2. IMAGE PROCESSING (Almost Unchanged) ---
+# This function is still needed to process the drawing
 def process_image(canvas_image):
     img = ImageOps.invert(canvas_image.convert('L'))
     bbox = img.getbbox()
@@ -55,51 +28,56 @@ def process_image(canvas_image):
     paste_y = (28 - img.height) // 2
     new_img.paste(img, (paste_x, paste_y))
     return new_img
-
-
-# --- FLASK API SETUP ---
+    
+# --- 3. FLASK API SETUP ---
 app = Flask(__name__)
-CORS(app)
+CORS(app) 
 
-
-# --- 2. ADD THIS NEW ROUTE ---
 @app.route('/')
 def home():
-    # This serves the index.html file from the 'templates' folder
     return render_template('index.html')
 
-
-# --- PREDICT ROUTE (Unchanged) ---
+# --- 4. UPDATED PREDICT ROUTE ---
 @app.route('/predict', methods=['POST'])
 def predict():
     data = request.get_json()
     if not data or 'image_data' not in data:
         return jsonify({'error': 'No image data found'}), 400
 
+    # --- Process the incoming image (same as before) ---
     image_data = data['image_data'].split(',')[1]
     img_bytes = base64.b64decode(image_data)
     img_rgba = Image.open(io.BytesIO(img_bytes))
-
     background = Image.new("RGB", img_rgba.size, (255, 255, 255))
     background.paste(img_rgba, (0, 0), img_rgba)
-
     processed_img = process_image(background)
     if processed_img is None:
         return jsonify({'error': 'No digit drawn'}), 400
 
-    img_tensor = transforms.ToTensor()(processed_img)
+    # --- Convert to NumPy (replaces PyTorch transforms) ---
+    # 1. Convert PIL image to NumPy array, scale to [0, 1]
+    img_array = np.array(processed_img).astype(np.float32) / 255.0
+    
+    # 2. Normalize (using the same MNIST stats)
     mean = 0.1307
     std = 0.3081
-    img_tensor = (img_tensor - mean) / std
-    img_tensor = img_tensor.unsqueeze(0).to(device)
+    img_array = (img_array - mean) / std
+    
+    # 3. Add batch and channel dimensions: (28, 28) -> (1, 1, 28, 28)
+    img_array = np.expand_dims(img_array, axis=(0, 1))
 
-    with torch.no_grad():
-        output = model(img_tensor)
-        _, predicted = torch.max(output.data, 1)
-
-    return jsonify({'prediction': predicted.item()})
-
+    # --- Run prediction with ONNX ---
+    # We use the input/output names we defined in convert_model.py
+    ort_inputs = {'input': img_array}
+    ort_outs = ort_session.run(['output'], ort_inputs)
+    
+    # ort_outs[0] is the raw output. We find the index with the highest score.
+    prediction = np.argmax(ort_outs[0])
+        
+    # Send response (as an integer)
+    return jsonify({'prediction': int(prediction)})
 
 if __name__ == '__main__':
-    # We still keep this for local testing
-    app.run(debug=True, port=5000)
+    # No changes needed here, but remove it for production
+    # to avoid confusion. Gunicorn starts the app.
+    pass
