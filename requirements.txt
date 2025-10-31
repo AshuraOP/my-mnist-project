@@ -1,11 +1,6 @@
-# Install general packages from PyPI
 flask
 flask-cors
 pillow
 numpy
 gunicorn
-
-# Add the PyTorch CPU index, but keep PyPI
---extra-index-url https://download.pytorch.org/whl/cpu
-torch
-torchvision
+onnxruntime # This is the tiny new runtime
