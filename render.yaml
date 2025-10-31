@@ -1,8 +1,8 @@
 services:
   - type: web
-    name: my-mnist-project # You can change this name if you want
+    name: my-mnist-project # You can change this name
     env: python
-    pythonVersion: "3.11" # Force Python 3.11 (which PyTorch supports)
+    pythonVersion: "3.11" # This forces Python 3.11
     buildCommand: "pip install -r requirements.txt"
     startCommand: "gunicorn app:app"
     plan: free
