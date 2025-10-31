@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 # --- 1. DEFINE THE MODEL ARCHITECTURE ---
-# This MUST be the exact same class from your training notebook
+# This is the corrected version.
 class SimpleCNN(nn.Module):
     def __init__(self):
         super(SimpleCNN, self).__init__()
@@ -19,6 +19,7 @@ class SimpleCNN(nn.Module):
     def forward(self, x):
         x = self.pool1(self.relu1(self.conv1(x)))
         x = self.pool2(self.relu2(self.conv2(x)))
+        # The typo was here (--1), this is now fixed (-1)
         x = x.view(-1, 32 * 7 * 7)
         x = self.relu3(self.fc1(x))
         x = self.fc2(x)
