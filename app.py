@@ -28,14 +28,17 @@ def process_image(canvas_image):
     paste_y = (28 - img.height) // 2
     new_img.paste(img, (paste_x, paste_y))
     return new_img
-    
+
+
 # --- 3. FLASK API SETUP ---
 app = Flask(__name__)
-CORS(app) 
+CORS(app)
+
 
 @app.route('/')
 def home():
     return render_template('index.html')
+
 
 # --- 4. UPDATED PREDICT ROUTE ---
 @app.route('/predict', methods=['POST'])
@@ -57,12 +60,12 @@ def predict():
     # --- Convert to NumPy (replaces PyTorch transforms) ---
     # 1. Convert PIL image to NumPy array, scale to [0, 1]
     img_array = np.array(processed_img).astype(np.float32) / 255.0
-    
+
     # 2. Normalize (using the same MNIST stats)
     mean = 0.1307
     std = 0.3081
     img_array = (img_array - mean) / std
-    
+
     # 3. Add batch and channel dimensions: (28, 28) -> (1, 1, 28, 28)
     img_array = np.expand_dims(img_array, axis=(0, 1))
 
@@ -70,12 +73,13 @@ def predict():
     # We use the input/output names we defined in convert_model.py
     ort_inputs = {'input': img_array}
     ort_outs = ort_session.run(['output'], ort_inputs)
-    
+
     # ort_outs[0] is the raw output. We find the index with the highest score.
     prediction = np.argmax(ort_outs[0])
-        
+
     # Send response (as an integer)
     return jsonify({'prediction': int(prediction)})
+
 
 if __name__ == '__main__':
     # No changes needed here, but remove it for production
